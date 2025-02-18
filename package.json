@@ -8,7 +8,7 @@
     "start": "node index.js"
   },
   "bin": {
-    "ai-shell": "./index.js"
+    "slave": "./index.js"
   },
   "keywords": [
     "ai",
@@ -24,12 +24,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourusername/ai-shell-assistant.git"
+    "url": "https://github.com/VanshGoyal000/SlaveShell.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/ai-shell-assistant/issues"
+    "url": "https://github.com/VanshGoyal000/SlaveShell.git/issues"
   },
-  "homepage": "https://github.com/yourusername/ai-shell-assistant#readme",
+  "homepage": "https://github.com/VanshGoyal000/SlaveShell.git#readme",
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
     "axios": "^1.7.9",
