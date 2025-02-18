@@ -1,6 +1,6 @@
 {
   "name": "slaveshell",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "An AI-powered shell assistant that understands Hindi and English commands",
   "main": "index.js",
   "scripts": {
