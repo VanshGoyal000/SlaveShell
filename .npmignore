@@ -1,0 +1,7 @@
+.git*
+node_modules/
+test/
+docs/
+.ai-agent-config.json
+.ai-agent.log
+.ai-agent-errors.log

@@ -1,0 +1,47 @@
+{
+  "name": "slaveshell",
+  "version": "1.0.0",
+  "description": "An AI-powered shell assistant that understands Hindi and English commands",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
+  },
+  "bin": {
+    "ai-shell": "./index.js"
+  },
+  "keywords": [
+    "ai",
+    "shell",
+    "cli",
+    "assistant",
+    "hindi",
+    "automation",
+    "project-generator",
+    "development-tool"
+  ],
+  "author": "Vansh Goyal vanshgoyal9528@gmail.com",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/ai-shell-assistant.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/ai-shell-assistant/issues"
+  },
+  "homepage": "https://github.com/yourusername/ai-shell-assistant#readme",
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "axios": "^1.7.9",
+    "chalk": "^4.1.2",
+    "chokidar": "^4.0.3",
+    "express": "^4.21.2",
+    "inquirer": "^8.2.5",
+    "mongoose": "^8.10.1",
+    "ora": "^5.4.1",
+    "readline-sync": "^1.4.10"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
