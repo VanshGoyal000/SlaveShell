@@ -62,7 +62,7 @@ async function initializeAI() {
 
         // Initialize Gemini
         genAI = new GoogleGenerativeAI(projectState.config.apiKey);
-        model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+        model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
         
         return true;
     } catch (error) {
@@ -223,16 +223,15 @@ async function handlePackageOperation(operation) {
         const { manager, action, packages, options, directory } = operation;
         let command;
         
-        // Change directory if specified
-        if (directory) {
-            process.chdir(resolveProjectPath(directory));
-        }
+        let cwd = process.cwd();
+        
+        console.log(chalk.cyan(`📦 Running in directory: ${directory || cwd}`));
         
         switch(manager) {
             case 'npm':
                 switch(action) {
                     case 'install':
-                        command = `npm install ${packages.join(' ')} ${options || ''}`;
+                        command = `npm install ${packages ? packages.join(' ') : ''} ${options || ''}`;
                         break;
                     case 'uninstall':
                         command = `npm uninstall ${packages.join(' ')}`;
@@ -277,6 +276,20 @@ async function handlePackageOperation(operation) {
         if (directory) {
             process.chdir(projectState.currentDirectory);
         }
+        if (directory) {
+            // Create directory if it doesn't exist
+            await fs.mkdir(directory, { recursive: true });
+            process.chdir(directory);
+        }
+        
+        try {
+            const result = await execPromise(command);
+            return { success: true, output: result };
+        } finally {
+            if (directory) {
+                process.chdir(cwd);
+            }
+        }
         
         return { success: true, output: result };
     } catch (error) {
@@ -288,46 +301,106 @@ async function handlePackageOperation(operation) {
 }
 
 // Process management
+
+// async function startProcess(command, options = {}) {
+//     const { name, waitForExit = false, cwd = projectState.currentDirectory, logFile } = options;
+    
+//     const processName = name || command.split(' ')[0];
+    
+//     // Kill existing process with the same name if running
+//     if (projectState.runningProcesses.has(processName)) {
+//         await stopProcess(processName);
+//     }
+    
+//     if (waitForExit) {
+//         const result = await execPromise(command);
+//         return { success: true, output: result };
+//     } else {
+//         const [cmd, ...args] = command.split(' ');
+        
+//         const stdio = logFile 
+//             ? ['ignore', fs.openSync(logFile, 'a'), fs.openSync(logFile, 'a')]
+//             : 'inherit';
+        
+//         const childProcess = spawn(cmd, args, {
+//             stdio,
+//             shell: true,
+//             cwd
+//         });
+        
+//         projectState.runningProcesses.set(processName, {
+//             process: childProcess,
+//             command,
+//             startTime: new Date(),
+//             logFile
+//         });
+        
+//         childProcess.on('exit', (code) => {
+//             console.log(chalk.yellow(`⏹️ Process ${processName} exited with code ${code}`));
+//             projectState.runningProcesses.delete(processName);
+//         });
+        
+//         console.log(chalk.green(`▶️ Started process: ${processName}`));
+//         return { success: true, processName };
+//     }
+// }
+
+// Update startProcess function
 async function startProcess(command, options = {}) {
     const { name, waitForExit = false, cwd = projectState.currentDirectory, logFile } = options;
     
     const processName = name || command.split(' ')[0];
     
-    // Kill existing process with the same name if running
-    if (projectState.runningProcesses.has(processName)) {
-        await stopProcess(processName);
-    }
-    
-    if (waitForExit) {
-        const result = await execPromise(command);
-        return { success: true, output: result };
-    } else {
-        const [cmd, ...args] = command.split(' ');
+    try {
+        // Kill existing process with the same name if running
+        if (projectState.runningProcesses.has(processName)) {
+            await stopProcess(processName);
+        }
         
-        const stdio = logFile 
-            ? ['ignore', fs.openSync(logFile, 'a'), fs.openSync(logFile, 'a')]
-            : 'inherit';
-        
-        const childProcess = spawn(cmd, args, {
-            stdio,
-            shell: true,
-            cwd
-        });
-        
-        projectState.runningProcesses.set(processName, {
-            process: childProcess,
-            command,
-            startTime: new Date(),
-            logFile
-        });
-        
-        childProcess.on('exit', (code) => {
-            console.log(chalk.yellow(`⏹️ Process ${processName} exited with code ${code}`));
-            projectState.runningProcesses.delete(processName);
-        });
-        
-        console.log(chalk.green(`▶️ Started process: ${processName}`));
-        return { success: true, processName };
+        if (waitForExit) {
+            const result = await execPromise(command);
+            return { success: true, output: result };
+        } else {
+            const [cmd, ...args] = command.split(' ');
+            
+            // Handle logging
+            let stdio = 'inherit';
+            let logStream;
+            
+            if (logFile) {
+                logStream = require('fs').createWriteStream(logFile, { flags: 'a' });
+                stdio = ['ignore', logStream, logStream];
+            }
+            
+            const childProcess = spawn(cmd, args, {
+                stdio,
+                shell: true,
+                cwd
+            });
+            
+            projectState.runningProcesses.set(processName, {
+                process: childProcess,
+                command,
+                startTime: new Date(),
+                logFile,
+                logStream // Store stream reference for cleanup
+            });
+            
+            childProcess.on('exit', (code) => {
+                console.log(chalk.yellow(`⏹️ Process ${processName} exited with code ${code}`));
+                // Close log stream if exists
+                if (logStream) {
+                    logStream.end();
+                }
+                projectState.runningProcesses.delete(processName);
+            });
+            
+            console.log(chalk.green(`▶️ Started process: ${processName}`));
+            return { success: true, processName };
+        }
+    } catch (error) {
+        console.error(chalk.red(`❌ Failed to start process:`), error.message);
+        throw error;
     }
 }
 
@@ -522,27 +595,35 @@ Respond with a detailed JSON execution plan:
 }
 `;
 
-        const response = await model.generateContent(prompt);
-        const planText = response.response.text().trim();
-        const cleanJson = planText
-            .replace(/```json\s?/g, '')
-            .replace(/```\s?/g, '')
-            .replace(/[\u200B-\u200D\uFEFF]/g, '')
-            .replace(/\/\/.+/g, '')
-            .replace(/\/\*[\s\S]*?\*\//g, '');
+const response = await model.generateContent(prompt);
+const rawResponse = response.response.text();
 
-        let plan = JSON.parse(cleanJson);
+// Clean and parse JSON
+let jsonStr = rawResponse.trim();
 
-        
-        // Extract JSON if response contains explanatory text
-        if (planText.includes('{') && planText.includes('}')) {
-            const jsonStart = planText.indexOf('{');
-            const jsonEnd = planText.lastIndexOf('}') + 1;
-            const jsonStr = planText.substring(jsonStart, jsonEnd);
-            plan = JSON.parse(jsonStr);
-        } else {
-            plan = JSON.parse(planText);
-        }
+if (jsonStr.includes('```')) {
+    const matches = jsonStr.match(/```(?:json)?([\s\S]*?)```/);
+    jsonStr = matches ? matches[1].trim() : jsonStr;
+}
+
+if (jsonStr.includes('{') && jsonStr.includes('}')) {
+    const start = jsonStr.indexOf('{');
+    const end = jsonStr.lastIndexOf('}') + 1;
+    jsonStr = jsonStr.substring(start, end);
+}
+
+jsonStr = jsonStr
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // Remove zero-width spaces
+    .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
+    .trim();
+
+
+let plan;
+try {
+    plan = JSON.parse(jsonStr);
+} catch (parseError) {
+    throw new Error(`JSON Parse Error: ${parseError.message}\nCleaned JSON: ${jsonStr}`);
+}
         
         spinner.succeed(chalk.green(`✓ Command parsed: ${plan.context.description}`));
         
@@ -621,59 +702,142 @@ Respond with a detailed JSON execution plan:
 }
 
 // Project setup handler
+// async function handleProjectSetup(setup) {
+//     console.log(chalk.blue(`🚀 Setting up ${setup.projectType} project: ${setup.name}`));
+    
+//     try {
+//         // Create project directory
+//         const projectPath = resolveProjectPath(setup.path || setup.name);
+//         await fs.mkdir(projectPath, { recursive: true });
+        
+//         // Navigate to project directory
+//         const originalDir = process.cwd();
+//         process.chdir(projectPath);
+//         projectState.currentDirectory = projectPath;
+        
+//         // Execute setup steps
+//         for (const step of setup.steps) {
+//             switch(step.type) {
+//                 case 'mkdir':
+//                     await fs.mkdir(step.details.path, { recursive: true });
+//                     console.log(chalk.green(`📁 Created directory: ${step.details.path}`));
+//                     break;
+                    
+//                 case 'write':
+//                     await fs.writeFile(step.details.path, step.details.content, 'utf8');
+//                     console.log(chalk.green(`📝 Created file: ${step.details.path}`));
+//                     break;
+                    
+//                 case 'exec':
+//                     await execPromise(step.details.command);
+//                     break;
+                    
+//                 case 'install':
+//                     await handlePackageOperation({
+//                         manager: step.details.manager,
+//                         action: 'install',
+//                         packages: step.details.packages,
+//                         options: step.details.options
+//                     });
+//                     break;
+                    
+//                 case 'start':
+//                     await startProcess(step.details.command, step.details.options);
+//                     break;
+                    
+//                 case 'git':
+//                     await handleGitOperation(step.details);
+//                     break;
+                    
+//                 case 'database':
+//                     await handleDatabaseOperation(step.details);
+//                     break;
+                    
+//                 default:
+//                     console.log(chalk.yellow(`⚠️ Unsupported setup step: ${step.type}`));
+//             }
+//         }
+        
+//         console.log(chalk.green(`✅ Project setup complete: ${setup.name}`));
+        
+//     } catch (error) {
+//         console.error(chalk.red(`❌ Project setup error:`), error.message);
+//         throw error;
+//     }
+// }
+
 async function handleProjectSetup(setup) {
     console.log(chalk.blue(`🚀 Setting up ${setup.projectType} project: ${setup.name}`));
     
+    // Store original directory before any changes
+    const originalDir = process.cwd();
+    
     try {
-        // Create project directory
-        const projectPath = resolveProjectPath(setup.path || setup.name);
+        // Create project directory with absolute path
+        const projectPath = path.resolve(projectState.currentDirectory, setup.path || setup.name);
         await fs.mkdir(projectPath, { recursive: true });
         
         // Navigate to project directory
-        const originalDir = process.cwd();
         process.chdir(projectPath);
         projectState.currentDirectory = projectPath;
         
+        console.log(chalk.cyan(`📂 Working in directory: ${projectPath}`));
+        
         // Execute setup steps
         for (const step of setup.steps) {
-            switch(step.type) {
-                case 'mkdir':
-                    await fs.mkdir(step.details.path, { recursive: true });
-                    console.log(chalk.green(`📁 Created directory: ${step.details.path}`));
-                    break;
-                    
-                case 'write':
-                    await fs.writeFile(step.details.path, step.details.content, 'utf8');
-                    console.log(chalk.green(`📝 Created file: ${step.details.path}`));
-                    break;
-                    
-                case 'exec':
-                    await execPromise(step.details.command);
-                    break;
-                    
-                case 'install':
-                    await handlePackageOperation({
-                        manager: step.details.manager,
-                        action: 'install',
-                        packages: step.details.packages,
-                        options: step.details.options
-                    });
-                    break;
-                    
-                case 'start':
-                    await startProcess(step.details.command, step.details.options);
-                    break;
-                    
-                case 'git':
-                    await handleGitOperation(step.details);
-                    break;
-                    
-                case 'database':
-                    await handleDatabaseOperation(step.details);
-                    break;
-                    
-                default:
-                    console.log(chalk.yellow(`⚠️ Unsupported setup step: ${step.type}`));
+            try {
+                switch(step.type) {
+                    case 'package-operation':
+                        console.log(chalk.cyan('📦 Running package operation...'));
+                        await handlePackageOperation({
+                            ...step,
+                            directory: projectPath
+                        });
+                        break;
+                        
+                    case 'file-operation':
+                        console.log(chalk.cyan('📄 Running file operation...'));
+                        const filePath = path.join(projectPath, step.path || '');
+                        await performFileOperation({
+                            ...step,
+                            path: path.join(projectPath, step.path || '')
+                        });
+                        break;
+                        
+                    case 'process-operation':
+                        console.log(chalk.cyan('▶️ Running process operation...'));
+                        if (step.action === 'start') {
+                            await startProcess(step.command, {
+                                ...step.options,
+                                cwd: projectPath
+                            });
+                        } else if (step.action === 'stop') {
+                            await stopProcess(step.options.name);
+                        }
+                        break;
+                        
+                    case 'mkdir':
+                        const dirPath = path.join(projectPath, step.details.path || '');
+                        await fs.mkdir(dirPath, { recursive: true });
+                        console.log(chalk.green(`📁 Created directory: ${dirPath}`));
+                        break;
+                        
+                    case 'write':
+                        const writeFilePath = path.join(projectPath, step.details.path || '');
+                        await fs.writeFile(writeFilePath, step.details.content, 'utf8');
+                        console.log(chalk.green(`📝 Created file: ${writeFilePath}`));
+                        break;
+                        
+                    case 'exec':
+                        await execPromise(step.details.command);
+                        break;
+                        
+                    default:
+                        console.log(chalk.yellow(`⚠️ Skipping unknown setup step: ${step.type}`));
+                }
+            } catch (stepError) {
+                console.error(chalk.red(`❌ Error in setup step ${step.type}:`), stepError.message);
+                throw stepError;
             }
         }
         
@@ -682,6 +846,15 @@ async function handleProjectSetup(setup) {
     } catch (error) {
         console.error(chalk.red(`❌ Project setup error:`), error.message);
         throw error;
+    } finally {
+        // Always restore original directory
+        try {
+            process.chdir(originalDir);
+            projectState.currentDirectory = originalDir;
+            console.log(chalk.cyan(`📂 Restored working directory: ${originalDir}`));
+        } catch (error) {
+            console.error(chalk.red(`❌ Error restoring directory:`), error.message);
+        }
     }
 }
 
